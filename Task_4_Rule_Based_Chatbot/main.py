@@ -1,107 +1,170 @@
-
 import string
 
+# ---------- Normalization ----------
+def normalize(text):
+    text = text.strip().lower()
+    text = text.replace("'", "")  # whats, im, dont
+    return text.translate(str.maketrans("", "", string.punctuation))
 
-# ==========================================
-# 1. CHATBOT WELCOME MESSAGE
-# ==========================================
+# ---------- Session state ----------
+session = {
+    "name": None,
+    "mode": "main",        # main | help_menu | support | orders | awaiting_name
+    "turns": 0,
+    "fallbacks": 0,
+}
 
-print("=" * 40)
-print("       Welcome to Python Chatbot")
-print("=" * 40)
+# ---------- Intent handlers (functional dictionary map) ----------
+def greet(text):
+    if session["name"]:
+        return f"Hello again, {session['name'].title()}! How can I help?"
+    return "Hello! How can I help you?"
 
-print("Bot: Hello! I am your Python chatbot.")
-print("Bot: Type 'help' to see what I can do.")
-print("Bot: Type 'exit' to end the conversation.")
+def how_are_you(text):
+    return "I'm doing great, thanks for asking!"
 
+def bot_identity(text):
+    return "I'm Python Chatbot, a rule-based assistant."
 
-# ==========================================
-# 2. INITIALIZE USER DATA
-# ==========================================
+def set_name(text):
+    name = text.split("my name is", 1)[1].strip()
+    if not name:
+        session["mode"] = "awaiting_name"
+        return "What should I call you?"
+    session["name"] = name
+    return f"Nice to meet you, {name.title()}!"
 
-user_name = None
+def get_name(text):
+    if session["name"]:
+        return f"Your name is {session['name'].title()}."
+    return "I don't know your name yet. Say 'my name is ...'."
 
+def thanks(text):
+    return "You're welcome!"
 
-# ==========================================
-# 3. MAIN CHATBOT LOOP
-# ==========================================
+def open_help(text):
+    session["mode"] = "help_menu"
+    return ("What do you need help with?\n"
+            "  1. Account\n  2. Orders\n  3. Technical support\n"
+            "  (type a number, or 'back')")
 
-while True:
+INTENTS = {
+    "greet": greet, "how_are_you": how_are_you, "identity": bot_identity,
+    "set_name": set_name, "get_name": get_name, "thanks": thanks, "help": open_help,
+}
 
-    # Get user input and normalize it
-    user_input = input("\nYou: ").strip().lower()
+# Keyword rules: intent -> trigger phrases (checked with substring match)
+KEYWORDS = {
+    "set_name": ["my name is"],
+    "get_name": ["know my name", "what is my name", "whats my name"],
+    "how_are_you": ["how are you"],
+    "identity": ["your name", "who are you"],
+    "thanks": ["thanks", "thank you", "thankyou"],
+    "help": ["help", "menu", "support"],
+    "greet": ["hello", "hi", "hey"],
+}
 
-    # Remove punctuation
-    user_input = user_input.translate(
-        str.maketrans("", "", string.punctuation)
-    )
+def detect_intent(text):
+    words = text.split()
+    for intent, phrases in KEYWORDS.items():
+        for p in phrases:
+            # single words must match whole words, so "hi" doesn't match "this"
+            if (" " in p and p in text) or (" " not in p and p in words):
+                return intent
+    return None
 
+# ---------- Help trees (nested flows) ----------
+HELP_TREES = {
+    "1": {"title": "Account", "options": {
+        "1": "To reset your password, use 'Forgot password' on the login page.",
+        "2": "To update your email, go to Settings > Profile.",
+    }},
+    "2": {"title": "Orders", "options": {
+        "1": "Track an order from 'My Orders' using your order ID.",
+        "2": "Returns are accepted within 30 days of delivery.",
+    }},
+    "3": {"title": "Technical support", "options": {
+        "1": "Try restarting the app and clearing the cache.",
+        "2": "For bugs, email support@example.com with a screenshot.",
+    }},
+}
 
-    # ======================================
-    # 4. HANDLE USER MESSAGES
-    # ======================================
+def handle_help_menu(text):
+    if text in ("back", "main", "cancel"):
+        session["mode"] = "main"
+        return "Back to the main menu. What else can I do?"
+    if text in HELP_TREES:
+        session["mode"] = f"tree_{text}"
+        tree = HELP_TREES[text]
+        lines = [f"{tree['title']} help:"]
+        lines += [f"  {k}. Topic {k}" for k in tree["options"]]
+        lines.append("  (type a number, or 'back')")
+        return "\n".join(lines)
+    return "Please choose 1, 2 or 3 (or type 'back')."
 
-    # Greeting responses
-    if user_input in ["hello", "hi", "hey"]:
-        print("Bot: Hello! How can I help you?")
+def handle_tree(text):
+    tree = HELP_TREES[session["mode"].split("_")[1]]
+    if text == "back":
+        session["mode"] = "help_menu"
+        return "Back to help topics. Choose 1, 2 or 3."
+    if text in tree["options"]:
+        return tree["options"][text]
+    return f"Choose one of {', '.join(tree['options'])} or type 'back'."
 
-    # How are you responses
-    elif user_input in ["how are you", "how are you doing"]:
-        print("Bot: I'm doing great! Thanks for asking.")
+def handle_awaiting_name(text):
+    session["name"] = text
+    session["mode"] = "main"
+    return f"Nice to meet you, {text.title()}!"
 
-    # Chatbot identity
-    elif user_input in [
-        "what is your name",
-        "whats your name",
-        "who are you"
-    ]:
-        print("Bot: My name is Python Chatbot. I'm a simple rule-based chatbot.")
+# ---------- Fallback ----------
+def fallback():
+    session["fallbacks"] += 1
+    if session["fallbacks"] >= 3:
+        session["fallbacks"] = 0
+        return "I'm still not getting it. Type 'help' for a menu of things I can do."
+    return "Sorry, I didn't understand that. Try rephrasing, or type 'help'."
 
-    # Asking about user's name
-    elif user_input in [
-        "do you know my name",
-        "do yo know my name",
-        "what is my name",
-        "whats my name"
-    ]:
-        if user_name:
-            print(f"Bot: Your name is {user_name.title()}.")
-        else:
-            print("Bot: I don't know your name yet. Please introduce yourself.")
+# ---------- Router ----------
+def respond(text):
+    session["turns"] += 1
+    mode = session["mode"]
 
-    # Thank you responses
-    elif user_input in ["thanks", "thank you", "thankyou"]:
-        print("Bot: You're welcome!")
+    if mode == "awaiting_name":
+        return handle_awaiting_name(text)
+    if mode == "help_menu":
+        return handle_help_menu(text)
+    if mode.startswith("tree_"):
+        return handle_tree(text)
 
-    # Help command
-    elif user_input == "help":
-        print("Bot: You can:")
-        print("- Greet me")
-        print("- Ask me how I am")
-        print("- Ask my name")
-        print("- Tell me your name")
-        print("- Ask me to remember your name")
-        print("- Type 'exit' to end the conversation")
+    intent = detect_intent(text)
+    if intent in INTENTS:
+        session["fallbacks"] = 0
+        return INTENTS[intent](text)
+    return fallback()
 
-    # Remember user's name
-    elif "my name is " in user_input:
-        user_name = user_input.split("my name is ", 1)[1].strip()
+# ---------- Main loop ----------
+def main():
+    print("=" * 40)
+    print("       Welcome to Python Chatbot")
+    print("=" * 40)
+    print("Bot: Hi! Type 'help' for options or 'exit' to quit.")
 
-        if user_name:
-            print(f"Bot: Nice to meet you, {user_name.title()}!")
-        else:
-            print("Bot: Please tell me your name.")
+    while True:
+        try:
+            raw = input("\nYou: ")
+        except (EOFError, KeyboardInterrupt):
+            print("\nBot: Goodbye!")
+            break
 
-    # Exit chatbot
-    elif user_input in ["exit", "quit", "bye"]:
-        print("Bot: Goodbye!")
-        break
+        text = normalize(raw)
+        if not text:
+            print("Bot: Please type something.")
+            continue
+        if text in ("exit", "quit", "bye"):
+            print(f"Bot: Goodbye{', ' + session['name'].title() if session['name'] else ''}!")
+            break
 
-    # Default response
-    else:
-        print("Bot: Sorry, I didn't understand that. Please try again.")
+        print("Bot:", respond(text))
 
-
-# ==========================================
-# 5. END OF CHATBOT
-# ==========================================
+if __name__ == "__main__":
+    main()
